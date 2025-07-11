@@ -1,34 +1,36 @@
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import db from '../db.js'
+import prisma from '../prismaClient.js';
 
 const router = express.Router();
 
 // Register a new user endpoint
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
     const {username, password} = req.body;
     const hashedPassword = bcrypt.hashSync(password, 8);
 
     try{
         // Save user to DB
-        const insertUser = db.prepare(`
-            INSERT INTO users(username, password)
-            VALUES (?, ?)
-            `);
-        const userResult = insertUser.run(username, hashedPassword);
+        const user = await prisma.user.create({
+            data:{
+                username: username,
+                password: hashedPassword
+            }
+        });
 
         // Create a default todo for the user
         const defaultTodo = "Hello! Add your first todo.";
-        const insertTodo = db.prepare(`
-            INSERT INTO todos(user_id, task)
-            VALUES (?,?)
-            `);
-        insertTodo.run(userResult.lastInsertRowid, defaultTodo);
+        await prisma.todo.create({
+            data:{
+                task: defaultTodo,
+                userId: user.id
+            }
+        });
 
         // Create a token
         const token = jwt.sign(
-            { id: userResult.lastInsertRowid }, 
+            { id: user.id }, 
             process.env.JWT_SECRET, 
             { expiresIn: '24h' }
         );
@@ -42,16 +44,16 @@ router.post('/register', (req, res) => {
 
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
     const { username, password } = req.body;
     
     try{
-        const getUser = db.prepare(`
-            SELECT * FROM users WHERE username = ?
-            `);
+        const user = await prisma.user.findUnique({
+            where: {
+                username: username
+            }
+        });
 
-        // Get user from db and check if there is one associated with username
-        const user = getUser.get(username);
         if(!user){
             return res.status(404).send({message: "User was not found."});
         }
